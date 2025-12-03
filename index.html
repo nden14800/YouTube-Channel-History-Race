@@ -1,0 +1,1222 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Channel History Race (Smooth Scaling & Signed Gap)</title>
+    <!-- Google Fonts: Roboto -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap" rel="stylesheet">
+
+    <style>
+        /* --- CSS設定 --- */
+        :root {
+            --bg-color: #1a1a1a;
+            --text-color: #ffffff;
+            --bar-height: 55px;
+            
+            /* チャンネルカラー */
+            --color-a: #29B6F6;
+            --color-b: #FF7043;
+            --color-c: #00E676;
+
+            --gain-text-color: #69F0AE;
+            --axis-color: #aaa;
+            --grid-line-color: rgba(255, 255, 255, 0.1);
+            --gap-line-color: #FFD700; /* Gold */
+            --zero-line-color: #fff; /* 0の基準線 */
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            font-family: 'Roboto', sans-serif;
+            color: var(--text-color);
+            overflow: hidden; /* スクロール禁止 */
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* --- メインコンテナ --- */
+        .chart-container {
+            position: relative;
+            width: 96vw;
+            height: 96vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* --- ヘッダー (上部 10%) --- */
+        .header-info {
+            width: 100%;
+            height: 10%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: flex-end;
+            padding-right: 20px;
+            box-sizing: border-box;
+            z-index: 50;
+        }
+
+        .current-date {
+            font-size: 3.5rem;
+            font-weight: 900;
+            color: #fff;
+            font-variant-numeric: tabular-nums;
+            line-height: 1;
+            text-shadow: 2px 2px 10px rgba(0,0,0,0.5);
+        }
+
+        @media (max-height: 800px) {
+            .current-date { font-size: 2.5rem; }
+        }
+
+        .total-counter {
+            font-size: 1.1rem;
+            color: #bbb;
+            margin-top: 5px;
+            font-weight: bold;
+        }
+
+        /* --- メイングラフエリア (中央 58%) --- */
+        .main-chart-wrapper {
+            position: relative;
+            width: 100%;
+            height: 58%;
+            margin-bottom: 2%;
+        }
+
+        .background-chart-area {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            border-left: 1px solid #555;
+            border-bottom: 1px solid #555;
+            box-sizing: border-box;
+            background: rgba(255,255,255,0.02);
+        }
+
+        .bg-svg {
+            width: 100%;
+            height: 100%;
+            display: block;
+            overflow: hidden;
+        }
+
+        .smooth-path {
+            fill: none;
+            stroke-width: 3;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            opacity: 0.4;
+            transition: d 0.1s linear;
+        }
+
+        .bg-grid-line {
+            stroke: var(--grid-line-color);
+            stroke-width: 1;
+        }
+        .bg-zero-line {
+            stroke: var(--zero-line-color);
+            stroke-width: 1.5;
+            stroke-dasharray: 4 4;
+            opacity: 0.5;
+        }
+
+        /* 軸ラベル */
+        .y-axis-container {
+            position: absolute;
+            top: 0;
+            left: -65px; 
+            width: 60px;
+            height: 100%;
+            pointer-events: none;
+        }
+        .y-axis-label {
+            position: absolute;
+            right: 5px;
+            transform: translateY(-50%);
+            color: var(--axis-color);
+            font-size: 11px;
+            font-weight: bold;
+            text-align: right;
+            transition: top 0.1s linear; /* スムーズ移動 */
+        }
+
+        .x-axis-container {
+            position: absolute;
+            bottom: -25px; 
+            left: 0;
+            width: 100%;
+            height: 25px;
+            pointer-events: none;
+        }
+        .x-axis-label {
+            position: absolute;
+            top: 5px;
+            transform: translateX(-50%);
+            color: var(--axis-color);
+            font-size: 11px;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+
+        /* バーチャート部分 */
+        .bars-wrapper {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            padding-top: 20px; 
+            z-index: 5;
+            pointer-events: none; 
+        }
+
+        .top-axis-container {
+            position: absolute;
+            top: 0; 
+            left: 0;
+            width: 100%;
+            height: 20px;
+            z-index: 6;
+            pointer-events: none;
+            border-bottom: 1px solid rgba(255,255,255,0.2);
+        }
+        .top-axis-tick {
+            position: absolute;
+            bottom: 0;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            transition: left 0.1s linear, opacity 0.2s;
+        }
+        .top-axis-label {
+            color: #ccc;
+            font-size: 12px;
+            font-weight: 700;
+            margin-bottom: 2px;
+        }
+        .top-axis-line {
+            width: 1px;
+            height: 100vh; 
+            background: rgba(255,255,255,0.1);
+        }
+
+        .bar-row {
+            position: absolute;
+            left: 0;
+            width: 100%; 
+            height: var(--bar-height);
+            display: flex;
+            align-items: center;
+            transition: top 0.4s ease-out; 
+            will-change: top;
+            z-index: 10;
+            pointer-events: auto; /* クリック可能 */
+            cursor: pointer;
+        }
+
+        .bar-row.selected .bar-fill {
+            border: 2px solid #fff;
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.8);
+            z-index: 20;
+        }
+
+        .bar-fill {
+            height: 100%;
+            display: flex;
+            align-items: center;
+            position: relative;
+            background-color: #555;
+            border-radius: 0 4px 4px 0;
+            transition: width 0.1s linear, filter 0.1s, border 0.1s;
+            box-sizing: border-box;
+            border: 2px solid transparent; 
+        }
+        .bar-fill.spiking {
+            filter: brightness(1.6) drop-shadow(0 0 10px rgba(255,255,255,0.5));
+        }
+        .bar-icon {
+            position: absolute;
+            right: 10px;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            z-index: 2;
+        }
+        .channel-name {
+            position: absolute;
+            right: 50px;
+            z-index: 2;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 300px;
+        }
+        .stats-container {
+            position: absolute;
+            left: 100%;
+            margin-left: 10px;
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            white-space: nowrap;
+        }
+        .sub-count {
+            font-weight: 700;
+            font-size: 1.6rem;
+            color: #fff;
+            font-variant-numeric: tabular-nums;
+            text-shadow: 2px 2px 4px rgba(0,0,0,1);
+        }
+        .daily-gain-text {
+            font-weight: 400;
+            font-size: 1.1rem;
+            color: var(--gain-text-color);
+            font-variant-numeric: tabular-nums;
+            text-shadow: 1px 1px 3px rgba(0,0,0,1);
+        }
+
+        /* --- 下部エリア (30%) --- */
+        .bottom-area {
+            position: relative;
+            width: 100%;
+            height: 30%; 
+            display: flex;
+            gap: 20px;
+            padding-bottom: 10px;
+            box-sizing: border-box;
+        }
+
+        .inset-chart-box {
+            flex: 1; 
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid #444;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            padding: 10px 10px 30px 45px;
+            box-sizing: border-box;
+            position: relative;
+        }
+
+        .inset-title {
+            font-size: 0.8rem;
+            color: #bbb;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 5px;
+            font-weight: 700;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 20px;
+        }
+        .legend { display: flex; gap: 10px; font-size: 0.75rem; }
+        .legend-item { display: flex; align-items: center; gap: 5px; }
+        .dot-legend { width: 8px; height: 8px; border-radius: 50%; }
+
+        .inset-content-wrapper {
+            position: relative;
+            flex: 1;
+            width: 100%;
+            overflow: visible;
+            border-left: 1px solid #666;
+            border-bottom: 1px solid #666;
+        }
+
+        .chart-svg-small {
+            width: 100%;
+            height: 100%;
+            display: block;
+            overflow: visible;
+        }
+        .chart-line { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+        .chart-dot { r: 3; stroke: #fff; stroke-width: 1; }
+        
+        .gap-line { stroke: var(--gap-line-color); stroke-width: 2.5; fill: none; }
+
+        .inset-y-axis { position: absolute; top: 0; left: -40px; width: 35px; height: 100%; pointer-events: none; }
+        .inset-y-label { position: absolute; right: 0; transform: translateY(-50%); color: #aaa; font-size: 9px; text-align: right; transition: top 0.1s linear;}
+        .inset-x-axis { position: absolute; bottom: -25px; left: 0; width: 100%; height: 20px; }
+        .inset-x-label { position: absolute; top: 0; transform: translateX(-50%); color: #aaa; font-size: 9px; white-space: nowrap; }
+
+        .selection-hint {
+            font-size: 0.7rem;
+            color: #888;
+            font-weight: normal;
+        }
+
+        /* --- 結果画面 (End Screen) --- */
+        .end-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0,0,0,0.95);
+            z-index: 300;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 1s ease;
+            overflow-y: auto;
+            padding: 40px 0;
+        }
+        .end-screen.visible { opacity: 1; pointer-events: auto; }
+        .end-title { font-size: 3rem; font-weight: 900; color: #fff; margin-bottom: 20px; text-transform: uppercase; }
+        .result-content { display: flex; flex-direction: column; align-items: center; gap: 30px; width: 90%; max-width: 1000px; }
+        .ranking-list { display: flex; flex-direction: column; gap: 15px; width: 100%; }
+        .rank-item { display: flex; align-items: center; background: rgba(255,255,255,0.1); padding: 15px 20px; border-radius: 8px; font-size: 1.5rem; font-weight: 700; }
+        .rank-num { width: 40px; color: #888; }
+        .rank-name { flex: 1; margin-left: 20px; }
+        .rank-subs { color: #fff; font-variant-numeric: tabular-nums; }
+        .result-charts-wrapper { display: flex; flex-direction: column; gap: 30px; width: 100%; margin-bottom: 30px; }
+        .result-chart-box { width: 100%; height: 250px; background: rgba(0,0,0,0.5); border: 1px solid #444; border-radius: 8px; position: relative; padding: 10px 10px 30px 60px; box-sizing: border-box; }
+        .result-chart-title { position: absolute; top: 10px; left: 60px; color: #ccc; font-size: 0.9rem; font-weight: bold; text-transform: uppercase; z-index: 10; }
+        .result-svg-container { width: 100%; height: 100%; position: relative; border-left: 1px solid #666; border-bottom: 1px solid #666; overflow: visible; }
+        .btn-restart { margin-top: 10px; margin-bottom: 40px; padding: 15px 50px; font-size: 1.5rem; font-weight: bold; background: #fff; color: #000; border: none; border-radius: 50px; cursor: pointer; transition: transform 0.2s; }
+        .btn-restart:hover { transform: scale(1.05); }
+
+    </style>
+</head>
+<body>
+
+    <div class="chart-container">
+        
+        <!-- ヘッダー (上部 10%) -->
+        <div class="header-info">
+            <div class="current-date" id="date-display">2020</div>
+            <div class="total-counter" id="total-display">Total: 0</div>
+        </div>
+
+        <!-- メイングラフエリア (中央 58%) -->
+        <div class="main-chart-wrapper">
+            <!-- 背景グラフ -->
+            <div class="background-chart-area">
+                <svg class="bg-svg" id="bg-svg" viewBox="0 0 1000 500" preserveAspectRatio="none">
+                    <g id="bg-grid-lines"></g>
+                    <path id="bg-path-A" class="smooth-path" style="stroke: var(--color-a);" d="" />
+                    <path id="bg-path-B" class="smooth-path" style="stroke: var(--color-b);" d="" />
+                    <path id="bg-path-C" class="smooth-path" style="stroke: var(--color-c);" d="" />
+                </svg>
+                <div class="y-axis-container" id="y-axis-container"></div>
+                <div class="x-axis-container" id="x-axis-container"></div>
+            </div>
+
+            <!-- バーチャート (オーバーレイ) -->
+            <div class="bars-wrapper" id="bars-wrapper">
+                <div class="top-axis-container" id="top-axis-container"></div>
+            </div>
+        </div>
+
+        <!-- 下部エリア (30%) - Gap & Daily -->
+        <div class="bottom-area">
+            
+            <!-- 左側: Gap Chart -->
+            <div class="inset-chart-box" id="gap-chart-box">
+                <div class="inset-title">
+                    <span id="gap-title">Gap Chart <span class="selection-hint">(Select 2 bars)</span></span>
+                    <span id="gap-value" style="color:var(--gap-line-color); font-size:0.9rem;"></span>
+                </div>
+                <div class="inset-content-wrapper">
+                    <div class="inset-y-axis" id="gap-y-axis"></div>
+                    <div class="inset-x-axis" id="gap-x-axis"></div>
+                    <svg class="chart-svg-small" viewBox="0 0 300 150" preserveAspectRatio="none">
+                        <g id="gap-grid-lines"></g>
+                        <!-- 0ライン -->
+                        <line id="gap-zero-line" class="bg-zero-line" x1="0" y1="0" x2="300" y2="0" style="display:none;" />
+                        <path id="gap-path" class="gap-line" d="" />
+                        <circle id="gap-dot" class="daily-dot" style="fill: var(--gap-line-color); display:none;" cx="-10" cy="-10" />
+                    </svg>
+                </div>
+            </div>
+
+            <!-- 右側: Daily Gain Chart -->
+            <div class="inset-chart-box" id="daily-chart-box">
+                <div class="inset-title">
+                    Daily Gain
+                    <div class="legend">
+                        <div class="legend-item"><span class="dot-legend" style="background:var(--color-a)"></span>A</div>
+                        <div class="legend-item"><span class="dot-legend" style="background:var(--color-b)"></span>B</div>
+                        <div class="legend-item"><span class="dot-legend" style="background:var(--color-c)"></span>C</div>
+                    </div>
+                </div>
+                <div class="inset-content-wrapper">
+                    <div class="inset-y-axis" id="inset-y-axis"></div>
+                    <div class="inset-x-axis" id="inset-x-axis"></div>
+                    <svg class="chart-svg-small" id="daily-chart-svg" viewBox="0 0 300 150" preserveAspectRatio="none">
+                        <g id="daily-grid-lines"></g>
+                        <path id="daily-path-A" class="chart-line" style="stroke: var(--color-a);" d="" />
+                        <path id="daily-path-B" class="chart-line" style="stroke: var(--color-b);" d="" />
+                        <path id="daily-path-C" class="chart-line" style="stroke: var(--color-c);" d="" />
+                        <circle id="daily-dot-A" class="daily-dot" style="fill: var(--color-a);" cx="-10" cy="-10" />
+                        <circle id="daily-dot-B" class="daily-dot" style="fill: var(--color-b);" cx="-10" cy="-10" />
+                        <circle id="daily-dot-C" class="daily-dot" style="fill: var(--color-c);" cx="-10" cy="-10" />
+                    </svg>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- 結果画面 -->
+    <div class="end-screen" id="end-screen">
+        <div class="end-title">Final Results</div>
+        
+        <div class="result-content">
+            <div class="ranking-list" id="ranking-list"></div>
+
+            <div class="result-charts-wrapper">
+                <!-- 合計グラフ -->
+                <div class="result-chart-box">
+                    <div class="result-chart-title">Total Subscribers (Full History)</div>
+                    <div class="result-svg-container">
+                        <div class="y-axis-container" id="res-total-y-axis"></div>
+                        <div class="x-axis-container" id="res-total-x-axis"></div>
+                        <svg class="bg-svg" viewBox="0 0 1000 500" preserveAspectRatio="none">
+                            <g id="res-total-grid"></g>
+                            <path id="res-total-path-A" class="smooth-path" style="stroke: var(--color-a); opacity:1; stroke-width:2;" d="" />
+                            <path id="res-total-path-B" class="smooth-path" style="stroke: var(--color-b); opacity:1; stroke-width:2;" d="" />
+                            <path id="res-total-path-C" class="smooth-path" style="stroke: var(--color-c); opacity:1; stroke-width:2;" d="" />
+                        </svg>
+                    </div>
+                </div>
+
+                <!-- 差分グラフ (条件付き) -->
+                <div class="result-chart-box" id="res-gap-box" style="display:none;">
+                    <div class="result-chart-title" id="res-gap-title">Gap Chart</div>
+                    <div class="result-svg-container">
+                        <div class="y-axis-container" id="res-gap-y-axis"></div>
+                        <div class="x-axis-container" id="res-gap-x-axis"></div>
+                        <svg class="bg-svg" viewBox="0 0 1000 500" preserveAspectRatio="none">
+                            <g id="res-gap-grid"></g>
+                            <line id="res-gap-zero-line" class="bg-zero-line" x1="0" y1="0" x2="1000" y2="0" style="display:none;" />
+                            <path id="res-gap-path" class="gap-line" d="" />
+                        </svg>
+                    </div>
+                </div>
+
+                <!-- デイリーゲイングラフ -->
+                <div class="result-chart-box">
+                    <div class="result-chart-title">Daily Gain (Full History)</div>
+                    <div class="result-svg-container">
+                        <div class="y-axis-container" id="res-daily-y-axis"></div>
+                        <div class="x-axis-container" id="res-daily-x-axis"></div>
+                        <svg class="bg-svg" viewBox="0 0 1000 500" preserveAspectRatio="none">
+                            <g id="res-daily-grid"></g>
+                            <path id="res-daily-path-A" class="smooth-path" style="stroke: var(--color-a); opacity:1; stroke-width:2;" d="" />
+                            <path id="res-daily-path-B" class="smooth-path" style="stroke: var(--color-b); opacity:1; stroke-width:2;" d="" />
+                            <path id="res-daily-path-C" class="smooth-path" style="stroke: var(--color-c); opacity:1; stroke-width:2;" d="" />
+                        </svg>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <button class="btn-restart" onclick="location.reload()">Replay</button>
+    </div>
+
+    <script>
+        // --- 設定 ---
+        const START_YEAR = 2020;
+        const START_DATE_OBJ = new Date(START_YEAR, 0, 1);
+        let currentDate = new Date(START_DATE_OBJ);
+        const endDate = new Date(2025, 11, 31);
+        const TOTAL_DURATION_MS = endDate - START_DATE_OBJ;
+        
+        const VIEW_WINDOW_DAYS = 180; 
+        const VIEW_WINDOW_MS = VIEW_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+
+        const daysPerFrame = 0.5; 
+        const MAX_SPIKE_CAP = 2500000;
+
+        const MILESTONES = [
+            1000000, 10000000, 50000000, 100000000, 200000000, 300000000, 400000000, 500000000
+        ];
+
+        const INITIAL_SCALE_TARGET = 10000000; 
+
+        const channels = [
+            { id: 'A', name: 'Channel A', color: 'var(--color-a)', subs: 0, type: 'late', noise: 0.3 },
+            { id: 'B', name: 'Channel B', color: 'var(--color-b)', subs: 0, type: 'early', noise: 0.5 },
+            { id: 'C', name: 'Channel C', color: 'var(--color-c)', subs: 0, type: 'steady', noise: 0.2 }
+        ];
+
+        let fullHistory = [];
+        let previousRankOrder = [];
+
+        // 選択されたチャンネルID (最大2つ)
+        let selectedChannelIds = [];
+
+        // Y軸の滑らかな遷移用スケール保持オブジェクト
+        // lerpFactor: 毎フレームどれくらい近づくか (0.1 = 10%)
+        const smoothScales = {
+            total: { max: INITIAL_SCALE_TARGET },
+            daily: { max: 100000 },
+            gap: { min: 0, max: 100000 } // Gapはマイナスもありうるのでminも管理
+        };
+        const LERP_FACTOR = 0.15;
+
+        // DOM
+        const wrapper = document.getElementById('bars-wrapper');
+        const topAxisContainer = document.getElementById('top-axis-container');
+        const mainYAxis = document.getElementById('y-axis-container');
+        const mainXAxis = document.getElementById('x-axis-container');
+        const bgGridGroup = document.getElementById('bg-grid-lines');
+        
+        // Daily Chart
+        const insetYAxis = document.getElementById('inset-y-axis');
+        const insetXAxis = document.getElementById('inset-x-axis');
+        const dailyGridGroup = document.getElementById('daily-grid-lines');
+        const dailyPaths = { A: document.getElementById('daily-path-A'), B: document.getElementById('daily-path-B'), C: document.getElementById('daily-path-C') };
+        const dailyDots = { A: document.getElementById('daily-dot-A'), B: document.getElementById('daily-dot-B'), C: document.getElementById('daily-dot-C') };
+
+        // Gap Chart
+        const gapYAxis = document.getElementById('gap-y-axis');
+        const gapXAxis = document.getElementById('gap-x-axis');
+        const gapGridGroup = document.getElementById('gap-grid-lines');
+        const gapPath = document.getElementById('gap-path');
+        const gapDot = document.getElementById('gap-dot');
+        const gapTitle = document.getElementById('gap-title');
+        const gapValue = document.getElementById('gap-value');
+        const gapZeroLine = document.getElementById('gap-zero-line');
+        
+        const dateDisplay = document.getElementById('date-display');
+        const totalDisplay = document.getElementById('total-display');
+        const endScreen = document.getElementById('end-screen');
+        const rankingList = document.getElementById('ranking-list');
+        
+        const bgPaths = { A: document.getElementById('bg-path-A'), B: document.getElementById('bg-path-B'), C: document.getElementById('bg-path-C') };
+
+        // --- 初期化 ---
+        function init() {
+            channels.forEach(ch => {
+                const row = document.createElement('div');
+                row.className = 'bar-row';
+                row.onclick = () => toggleSelection(ch.id, row);
+                
+                const fill = document.createElement('div');
+                fill.className = 'bar-fill';
+                fill.style.backgroundColor = ch.color;
+                
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'channel-name';
+                nameSpan.innerText = ch.name;
+                fill.appendChild(nameSpan);
+
+                const iconDiv = document.createElement('div');
+                iconDiv.className = 'bar-icon';
+                iconDiv.innerHTML = `<div style="width:100%; height:100%; background:#fff; color:${ch.color.replace('var(', '').replace(')', '')}; display:flex; align-items:center; justify-content:center; border-radius:4px; font-weight:900;">${ch.id}</div>`;
+                fill.appendChild(iconDiv);
+
+                const statsDiv = document.createElement('div');
+                statsDiv.className = 'stats-container';
+                const countSpan = document.createElement('span');
+                countSpan.className = 'sub-count';
+                countSpan.innerText = "0";
+                const gainSpan = document.createElement('span');
+                gainSpan.className = 'daily-gain-text';
+                gainSpan.innerText = "(+0)";
+
+                statsDiv.appendChild(countSpan);
+                statsDiv.appendChild(gainSpan);
+                fill.appendChild(statsDiv);
+
+                row.appendChild(fill);
+                wrapper.appendChild(row);
+
+                ch.elRow = row;
+                ch.elFill = fill;
+                ch.elCount = countSpan;
+                ch.elGain = gainSpan;
+                ch.currentDaily = 0; 
+                ch.spikeVal = 0;
+            });
+
+            for(let i=0; i<5; i++) {
+                const tick = document.createElement('div');
+                tick.className = 'top-axis-tick';
+                tick.id = `top-tick-${i}`;
+                const lbl = document.createElement('div');
+                lbl.className = 'top-axis-label';
+                lbl.innerText = '0';
+                const line = document.createElement('div');
+                line.className = 'top-axis-line';
+                tick.appendChild(lbl);
+                tick.appendChild(line);
+                topAxisContainer.appendChild(tick);
+            }
+
+            previousRankOrder = channels.map(c => c.id);
+            requestAnimationFrame(animateLoop);
+        }
+
+        // --- 選択ロジック ---
+        function toggleSelection(id, rowEl) {
+            if (selectedChannelIds.includes(id)) {
+                selectedChannelIds = selectedChannelIds.filter(x => x !== id);
+                rowEl.classList.remove('selected');
+            } else {
+                if (selectedChannelIds.length >= 2) {
+                    const removedId = selectedChannelIds.shift();
+                    const removedCh = channels.find(c => c.id === removedId);
+                    if(removedCh && removedCh.elRow) removedCh.elRow.classList.remove('selected');
+                }
+                selectedChannelIds.push(id);
+                rowEl.classList.add('selected');
+            }
+        }
+
+        // --- アニメーションループ ---
+        function animateLoop() {
+            if (currentDate >= endDate) {
+                showResults();
+                return;
+            }
+            currentDate.setTime(currentDate.getTime() + (daysPerFrame * 24 * 60 * 60 * 1000));
+            simulateStep();
+            updateVisuals();
+            requestAnimationFrame(animateLoop);
+        }
+
+        function simulateStep() {
+            const timeDiff = currentDate - START_DATE_OBJ;
+            const daysPassed = timeDiff / (1000 * 3600 * 24);
+            const totalDays = TOTAL_DURATION_MS / (1000 * 3600 * 24);
+            const progress = daysPassed / totalDays;
+
+            let currentStats = { date: new Date(currentDate) };
+            const currentRankOrder = [...channels].sort((a,b) => b.subs - a.subs).map(c => c.id);
+
+            let overtakers = [];
+            channels.forEach(ch => {
+                const oldIndex = previousRankOrder.indexOf(ch.id);
+                const newIndex = currentRankOrder.indexOf(ch.id);
+                if (newIndex < oldIndex) overtakers.push(ch.id);
+            });
+            previousRankOrder = currentRankOrder;
+
+            channels.forEach(ch => {
+                let baseGain = 0;
+                if (ch.type === 'late') {
+                    let factor = Math.max(0, daysPassed - 400);
+                    baseGain = Math.pow(factor, 1.7) * 0.8; 
+                    if (progress > 0.8) baseGain *= 1.5;
+                } else if (ch.type === 'early') {
+                    baseGain = 100000 + (daysPassed * 100); 
+                    baseGain += Math.sin(daysPassed * 0.01) * 50000;
+                } else if (ch.type === 'steady') {
+                    baseGain = 5000 + Math.pow(daysPassed, 1.45) * 8;
+                }
+
+                let noiseVal = (Math.random() - 0.5) * 2 * (baseGain * ch.noise);
+                let daily = baseGain + noiseVal;
+
+                let dynamicSpike = ch.subs * 0.03; 
+                if (dynamicSpike < 100000) dynamicSpike = 100000; 
+                if (dynamicSpike > MAX_SPIKE_CAP) dynamicSpike = MAX_SPIKE_CAP;
+
+                let estimatedNext = ch.subs + (daily * daysPerFrame);
+                MILESTONES.forEach(ms => {
+                    if (ch.subs < ms && estimatedNext >= ms) {
+                        ch.spikeVal = dynamicSpike; 
+                    }
+                });
+                if (overtakers.includes(ch.id)) {
+                    ch.spikeVal += dynamicSpike * 0.5;
+                }
+                ch.spikeVal *= 0.8;
+                if(ch.spikeVal < 1000) ch.spikeVal = 0;
+
+                daily += ch.spikeVal;
+                if (daily < 0) daily = 0;
+                if (daily > MAX_SPIKE_CAP) daily = MAX_SPIKE_CAP;
+
+                ch.currentDaily = daily;
+                ch.subs += daily * daysPerFrame;
+                if (daily > 1000000) ch.elFill.classList.add('spiking');
+                else ch.elFill.classList.remove('spiking');
+
+                currentStats[`subs${ch.id}`] = ch.subs;
+                currentStats[`daily${ch.id}`] = ch.currentDaily;
+            });
+            fullHistory.push(currentStats);
+        }
+
+        // --- 描画更新 ---
+        function updateVisuals() {
+            // 現在のデータに基づくターゲット最大値の計算
+            const sorted = [...channels].sort((a, b) => b.subs - a.subs);
+            const currentMaxSub = sorted[0].subs;
+            
+            // --- 1. スムージング処理 (Y軸) ---
+            const lerp = (start, end, factor) => start + (end - start) * factor;
+
+            // Total Subs Scale (Maxのみ追従)
+            let targetTotalMax = Math.max(currentMaxSub * 1.1, INITIAL_SCALE_TARGET);
+            smoothScales.total.max = lerp(smoothScales.total.max, targetTotalMax, LERP_FACTOR);
+
+            // Daily Gain Scale (直近データのMaxに追従)
+            // 直近100件程度の最大値を見る
+            let recentDailyMax = 100000;
+            const lookback = Math.min(fullHistory.length, 100);
+            for(let i=0; i<lookback; i++) {
+                const d = fullHistory[fullHistory.length - 1 - i];
+                recentDailyMax = Math.max(recentDailyMax, d.dailyA, d.dailyB, d.dailyC);
+            }
+            if (recentDailyMax > MAX_SPIKE_CAP) recentDailyMax = MAX_SPIKE_CAP;
+            smoothScales.daily.max = lerp(smoothScales.daily.max, recentDailyMax * 1.1, LERP_FACTOR);
+
+            // バーチャート更新
+            sorted.forEach((ch, i) => {
+                ch.elRow.style.top = `${i * (55 + 20)}px`;
+                const w = (ch.subs / smoothScales.total.max) * 100;
+                let finalWidth = 0;
+                if (ch.subs > 0) finalWidth = Math.max(w, 0.5); 
+                ch.elFill.style.width = `${finalWidth}%`;
+                ch.elCount.innerText = formatNumberCompact(ch.subs);
+                ch.elGain.innerText = `(+${formatNumberCompact(ch.currentDaily)})`;
+            });
+
+            // 軸更新 (Total)
+            updateMainAxes(smoothScales.total.max);
+
+            // テキスト
+            const y = currentDate.getFullYear();
+            const m = String(currentDate.getMonth()+1).padStart(2,'0');
+            const d = String(currentDate.getDate()).padStart(2,'0');
+            dateDisplay.innerText = `${y}.${m}.${d}`;
+            const totalAll = channels.reduce((a,c) => a + c.subs, 0);
+            totalDisplay.innerText = `Total: ${formatNumberCompact(totalAll)}`;
+
+            // --- ウィンドウ計算 ---
+            const currentMs = currentDate.getTime();
+            const startMs = START_DATE_OBJ.getTime();
+            let viewEndMs = currentMs;
+            let viewStartMs = (currentMs - startMs < VIEW_WINDOW_MS) ? startMs : currentMs - VIEW_WINDOW_MS;
+            
+            drawDynamicXAxisLabels(mainXAxis, viewStartMs, viewEndMs);
+
+            if (fullHistory.length > 2) {
+                const displayData = fullHistory.filter(d => {
+                    const t = d.date.getTime();
+                    return t >= viewStartMs && t <= viewEndMs;
+                });
+                
+                const skip = Math.ceil(displayData.length / 300);
+                const filteredData = displayData.filter((_, i) => i % skip === 0 || i === displayData.length - 1);
+
+                drawWindowedChart(bgPaths, filteredData, 'subs', 1000, 500, 0, smoothScales.total.max, viewStartMs, viewEndMs);
+                
+                // Gap Chart 更新 (2つ選択時のみ)
+                updateGapChart(filteredData, viewStartMs, viewEndMs);
+            }
+
+            // Daily Gain Chart (右下)
+            const recentData = fullHistory.slice(-100);
+            drawInsetChart(recentData, smoothScales.daily.max);
+        }
+
+        // --- Gap Chart Update Logic ---
+        function updateGapChart(data, minTime, maxTime) {
+            // リセット
+            gapPath.setAttribute('d', '');
+            gapDot.style.display = 'none';
+            gapZeroLine.style.display = 'none';
+            gapYAxis.innerHTML = '';
+            gapXAxis.innerHTML = '';
+            gapGridGroup.innerHTML = '';
+            
+            if (selectedChannelIds.length !== 2) {
+                gapTitle.innerHTML = 'Gap Chart <span class="selection-hint">(Select 2 bars)</span>';
+                gapValue.innerText = "";
+                return;
+            }
+
+            const id1 = selectedChannelIds[0];
+            const id2 = selectedChannelIds[1];
+            gapTitle.innerText = `Gap: ${id1} - ${id2}`;
+
+            // 差分データ生成 (符号付き)
+            let rawGaps = data.map(d => d[`subs${id1}`] - d[`subs${id2}`]);
+            
+            // 現在値
+            const currentVal = rawGaps[rawGaps.length - 1];
+            gapValue.innerText = `Current: ${formatNumberCompact(currentVal)}`;
+
+            // ターゲットMin/Max計算
+            let targetMin = Math.min(...rawGaps);
+            let targetMax = Math.max(...rawGaps);
+            
+            // 範囲が狭すぎると見にくいので最低限のマージンを持たせる
+            if (targetMax - targetMin < 1000) {
+                targetMax += 500;
+                targetMin -= 500;
+            }
+            // 少し余白
+            const range = targetMax - targetMin;
+            targetMax += range * 0.1;
+            targetMin -= range * 0.1;
+
+            // スムージング
+            const lerp = (a,b,f) => a + (b-a)*f;
+            smoothScales.gap.min = lerp(smoothScales.gap.min, targetMin, LERP_FACTOR);
+            smoothScales.gap.max = lerp(smoothScales.gap.max, targetMax, LERP_FACTOR);
+
+            const sMin = smoothScales.gap.min;
+            const sMax = smoothScales.gap.max;
+
+            // 描画
+            const width = 300;
+            const height = 150;
+            const duration = maxTime - minTime;
+            const fullRange = sMax - sMin || 1;
+
+            const points = data.map((d, i) => {
+                const t = d.date.getTime();
+                const ratio = (t - minTime) / duration;
+                const x = ratio * width;
+                
+                const val = rawGaps[i];
+                // Y軸: 下がMin, 上がMax
+                // norm = (val - min) / (max - min)
+                const normY = (val - sMin) / fullRange;
+                const y = height - (Math.min(Math.max(normY, 0), 1) * height);
+                return [x, y];
+            });
+
+            const pathRes = generateSmoothPath(points);
+            gapPath.setAttribute('d', pathRes.path);
+
+            if(pathRes.lastPoint) {
+                gapDot.style.display = 'block';
+                gapDot.setAttribute('cx', pathRes.lastPoint[0]);
+                gapDot.setAttribute('cy', pathRes.lastPoint[1]);
+            }
+
+            // 0ラインの描画 (範囲内に0が含まれる場合)
+            if (sMin < 0 && sMax > 0) {
+                const zeroNorm = (0 - sMin) / fullRange;
+                const zeroY = height - (zeroNorm * height);
+                gapZeroLine.setAttribute('y1', zeroY);
+                gapZeroLine.setAttribute('y2', zeroY);
+                gapZeroLine.style.display = 'block';
+            }
+
+            // 軸更新
+            drawDynamicXAxisLabels(gapXAxis, minTime, maxTime);
+            updateYAxisLabelsAutoRange(gapYAxis, gapGridGroup, sMin, sMax, 150, 300, 3, true);
+        }
+
+
+        // --- Chart Drawing Helper (Windowed, with Min/Max) ---
+        function drawWindowedChart(pathEls, data, keyPrefix, w, h, minVal, maxVal, minTime, maxTime) {
+            pathEls.A.setAttribute('d', makePathWindowed(data, keyPrefix+'A', w, h, minVal, maxVal, minTime, maxTime).path);
+            pathEls.B.setAttribute('d', makePathWindowed(data, keyPrefix+'B', w, h, minVal, maxVal, minTime, maxTime).path);
+            pathEls.C.setAttribute('d', makePathWindowed(data, keyPrefix+'C', w, h, minVal, maxVal, minTime, maxTime).path);
+        }
+
+        function makePathWindowed(data, key, width, height, minVal, maxVal, minTime, maxTime) {
+            if (data.length < 2) return { path: "", lastPoint: null };
+            const duration = maxTime - minTime;
+            const range = maxVal - minVal || 1;
+
+            const points = data.map(d => {
+                const t = d.date.getTime();
+                const ratio = (t - minTime) / duration;
+                const x = ratio * width;
+                
+                const val = d[key];
+                const normY = (val - minVal) / range;
+                const y = height - (Math.min(Math.max(normY, 0), 1) * height * 0.95); // 0.95で少し余白
+                return [x, y];
+            });
+            return generateSmoothPath(points);
+        }
+
+        function drawInsetChart(data, maxVal) {
+            // Daily ChartはMin=0で固定、Maxのみ可変
+            const minVal = 0;
+            const makePathIndex = (vals) => {
+                if (vals.length < 2) return { path:"", lastPoint:null };
+                const stepX = 300 / (vals.length - 1);
+                const points = vals.map((v, i) => {
+                    const x = i * stepX;
+                    const normY = v / maxVal;
+                    const y = 150 - (Math.min(Math.max(normY, 0), 1) * 150 * 0.95);
+                    return [x, y];
+                });
+                return generateSmoothPath(points);
+            };
+
+            const resA = makePathIndex(data.map(d=>d.dailyA));
+            const resB = makePathIndex(data.map(d=>d.dailyB));
+            const resC = makePathIndex(data.map(d=>d.dailyC));
+
+            dailyPaths.A.setAttribute('d', resA.path);
+            dailyPaths.B.setAttribute('d', resB.path);
+            dailyPaths.C.setAttribute('d', resC.path);
+
+            if (resA.lastPoint) setDot(dailyDots.A, resA.lastPoint);
+            if (resB.lastPoint) setDot(dailyDots.B, resB.lastPoint);
+            if (resC.lastPoint) setDot(dailyDots.C, resC.lastPoint);
+            
+            if(data.length > 0) {
+                drawDynamicXAxisLabels(insetXAxis, data[0].date.getTime(), data[data.length-1].date.getTime());
+            }
+            updateYAxisLabelsAutoRange(insetYAxis, dailyGridGroup, 0, maxVal, 150, 300, 3, true);
+        }
+
+        function setDot(el, pt) {
+            el.setAttribute('cx', pt[0]);
+            el.setAttribute('cy', pt[1]);
+        }
+
+        function generateSmoothPath(points) {
+            if (points.length < 2) return { path: "", lastPoint: null };
+            const line = (a, b) => {
+                const lx = b[0]-a[0], ly = b[1]-a[1];
+                return { len: Math.sqrt(lx*lx+ly*ly), ang: Math.atan2(ly,lx) };
+            };
+            const ctrl = (cur, prev, next, rev) => {
+                const p = prev||cur, n = next||cur;
+                const smooth = 0.15; 
+                const o = line(p, n);
+                const ang = o.ang + (rev ? Math.PI : 0);
+                const len = o.len * smooth;
+                return [cur[0] + Math.cos(ang)*len, cur[1] + Math.sin(ang)*len];
+            };
+            let d = `M ${points[0][0].toFixed(1)},${points[0][1].toFixed(1)}`;
+            for (let i = 1; i < points.length; i++) {
+                const cps = ctrl(points[i-1], points[i-2], points[i]);
+                const cpe = ctrl(points[i], points[i-1], points[i+1], true);
+                d += ` C ${cps[0].toFixed(1)},${cps[1].toFixed(1)} ${cpe[0].toFixed(1)},${cpe[1].toFixed(1)} ${points[i][0].toFixed(1)},${points[i][1].toFixed(1)}`;
+            }
+            return { path: d, lastPoint: points[points.length-1] };
+        }
+
+        function updateMainAxes(currentMax) {
+            const divs = 5;
+            const roughStep = currentMax / divs;
+            const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
+            const step = Math.ceil(roughStep / magnitude) * magnitude;
+
+            for(let i=0; i<5; i++) {
+                const tick = document.getElementById(`top-tick-${i}`);
+                const val = step * (i + 1);
+                const pct = (val / currentMax) * 100;
+                if (pct > 100) {
+                    tick.style.opacity = 0;
+                } else {
+                    tick.style.opacity = 1;
+                    tick.style.left = `${pct}%`;
+                    tick.querySelector('.top-axis-label').innerText = formatNumberCompact(val);
+                }
+            }
+            // メイングラフは常に0スタート
+            updateYAxisLabelsAutoRange(mainYAxis, bgGridGroup, 0, currentMax, 500, 1000, 4, false);
+        }
+
+        // --- Y軸ラベル生成 (Min/Max対応) ---
+        function updateYAxisLabelsAutoRange(container, gridGroup, minVal, maxVal, height, width, divisions, isSmall) {
+            container.innerHTML = '';
+            if(gridGroup) gridGroup.innerHTML = '';
+            
+            const range = maxVal - minVal;
+            if (range <= 0) return;
+
+            const roughStep = range / divisions;
+            const mag = Math.pow(10, Math.floor(Math.log10(roughStep)));
+            const step = Math.ceil(roughStep / mag) * mag;
+
+            // start from rounded min
+            const startTick = Math.ceil(minVal / step) * step;
+            
+            for(let v = startTick; v <= maxVal; v += step) {
+                const ratio = (v - minVal) / range;
+                if (ratio < -0.05 || ratio > 1.05) continue; 
+                
+                const yPos = height - (ratio * height);
+                
+                const lbl = document.createElement('div');
+                lbl.className = isSmall ? 'inset-y-label' : 'y-axis-label';
+                lbl.style.top = `${(yPos/height)*100}%`;
+                lbl.innerText = formatNumberCompact(v);
+                container.appendChild(lbl);
+
+                if (gridGroup) {
+                    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    line.setAttribute("x1", "0");
+                    line.setAttribute("y1", yPos);
+                    line.setAttribute("x2", width);
+                    line.setAttribute("y2", yPos);
+                    line.setAttribute("class", "bg-grid-line");
+                    if(isSmall) {
+                        line.setAttribute("stroke", "rgba(255,255,255,0.15)");
+                        line.setAttribute("stroke-width", "1");
+                    }
+                    gridGroup.appendChild(line);
+                }
+            }
+        }
+
+        function drawDynamicXAxisLabels(container, startMs, endMs) {
+            container.innerHTML = '';
+            const duration = endMs - startMs;
+            const startDate = new Date(startMs);
+            const endDate = new Date(endMs);
+
+            if (duration > 2 * 365 * 24 * 3600 * 1000) {
+                for (let y = startDate.getFullYear(); y <= endDate.getFullYear() + 1; y++) {
+                    const dateY = new Date(y, 0, 1).getTime();
+                    if (dateY >= startMs && dateY <= endMs) {
+                        const pct = ((dateY - startMs) / duration) * 100;
+                        addLabel(container, pct, y.toString());
+                    }
+                }
+            } else {
+                let iter = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+                while (iter.getTime() <= endMs) {
+                    const t = iter.getTime();
+                    if (t >= startMs) {
+                        const pct = ((t - startMs) / duration) * 100;
+                        const labelText = `${iter.getFullYear()}/${(iter.getMonth()+1).toString().padStart(2,'0')}/${iter.getDate().toString().padStart(2,'0')}`;
+                        addLabel(container, pct, labelText);
+                    }
+                    iter.setMonth(iter.getMonth() + 1);
+                }
+            }
+        }
+
+        function addLabel(container, pct, text) {
+            const lbl = document.createElement('div');
+            lbl.className = container.id.includes('inset') || container.id.includes('gap') ? 'inset-x-label' : 'x-axis-label';
+            lbl.style.left = `${pct}%`;
+            lbl.innerText = text;
+            container.appendChild(lbl);
+        }
+
+        function formatNumberCompact(num) {
+            const abs = Math.abs(num);
+            const sign = num < 0 ? "-" : "";
+            if (abs >= 1e9) return sign + (abs/1e9).toFixed(2)+'B';
+            if (abs >= 1e6) return sign + (abs/1e6).toFixed(1)+'M';
+            if (abs >= 1e3) return sign + (abs/1e3).toFixed(0)+'K';
+            return sign + Math.floor(abs).toLocaleString();
+        }
+
+        // --- 結果画面 ---
+        function showResults() {
+            endScreen.classList.add('visible');
+            
+            const sorted = [...channels].sort((a, b) => b.subs - a.subs);
+            rankingList.innerHTML = '';
+            sorted.forEach((ch, index) => {
+                const item = document.createElement('div');
+                item.className = 'rank-item';
+                item.innerHTML = `
+                    <div class="rank-num">#${index + 1}</div>
+                    <div style="width:40px; height:40px; background:${ch.color}; border-radius:4px; display:flex; align-items:center; justify-content:center; font-weight:bold; color:#fff;">${ch.id}</div>
+                    <div class="rank-name">${ch.name}</div>
+                    <div class="rank-subs">${Math.floor(ch.subs).toLocaleString()}</div>
+                `;
+                rankingList.appendChild(item);
+            });
+
+            const skip = Math.ceil(fullHistory.length / 400); 
+            const finalData = fullHistory.filter((_, i) => i % skip === 0 || i === fullHistory.length - 1);
+            
+            const maxSubs = Math.max(...channels.map(c => c.subs));
+            const totalPaths = {
+                A: document.getElementById('res-total-path-A'),
+                B: document.getElementById('res-total-path-B'),
+                C: document.getElementById('res-total-path-C')
+            };
+            drawWindowedChart(totalPaths, finalData, 'subs', 1000, 500, 0, maxSubs, START_DATE_OBJ.getTime(), endDate.getTime());
+            updateYAxisLabelsAutoRange(document.getElementById('res-total-y-axis'), document.getElementById('res-total-grid'), 0, maxSubs, 500, 1000, 4, false);
+            drawDynamicXAxisLabels(document.getElementById('res-total-x-axis'), START_DATE_OBJ.getTime(), endDate.getTime());
+
+            // --- 結果画面でのGap Chart表示 (条件付き) ---
+            const resGapBox = document.getElementById('res-gap-box');
+            if (selectedChannelIds.length === 2) {
+                resGapBox.style.display = 'block';
+                const id1 = selectedChannelIds[0];
+                const id2 = selectedChannelIds[1];
+                document.getElementById('res-gap-title').innerText = `Gap: ${id1} - ${id2} (Full History)`;
+
+                // 全期間Gapデータ
+                const gaps = finalData.map(d => d[`subs${id1}`] - d[`subs${id2}`]);
+                const gMin = Math.min(...gaps);
+                const gMax = Math.max(...gaps);
+                const gRange = gMax - gMin || 1;
+                
+                // パス生成
+                const width = 1000;
+                const height = 500;
+                const points = gaps.map((val, i) => {
+                    const x = (i / (gaps.length - 1)) * width;
+                    const normY = (val - gMin) / gRange;
+                    const y = height - (Math.min(Math.max(normY, 0), 1) * height * 0.95);
+                    return [x, y];
+                });
+                const resGapPath = document.getElementById('res-gap-path');
+                resGapPath.setAttribute('d', generateSmoothPath(points).path);
+
+                // 0ライン
+                const resGapZero = document.getElementById('res-gap-zero-line');
+                if (gMin < 0 && gMax > 0) {
+                    const zY = height - ((0 - gMin)/gRange * height);
+                    resGapZero.setAttribute('y1', zY);
+                    resGapZero.setAttribute('y2', zY);
+                    resGapZero.style.display = 'block';
+                } else {
+                    resGapZero.style.display = 'none';
+                }
+
+                // 軸
+                updateYAxisLabelsAutoRange(document.getElementById('res-gap-y-axis'), document.getElementById('res-gap-grid'), gMin, gMax, 500, 1000, 4, false);
+                drawDynamicXAxisLabels(document.getElementById('res-gap-x-axis'), START_DATE_OBJ.getTime(), endDate.getTime());
+
+            } else {
+                resGapBox.style.display = 'none';
+            }
+
+            // Daily Gain
+            const dailyVals = [];
+            finalData.forEach(d => { dailyVals.push(d.dailyA, d.dailyB, d.dailyC); });
+            let maxDaily = Math.max(...dailyVals, 100000);
+            if(maxDaily > MAX_SPIKE_CAP) maxDaily = MAX_SPIKE_CAP;
+
+            const dailyResPaths = {
+                A: document.getElementById('res-daily-path-A'),
+                B: document.getElementById('res-daily-path-B'),
+                C: document.getElementById('res-daily-path-C')
+            };
+            drawWindowedChart(dailyResPaths, finalData, 'daily', 1000, 500, 0, maxDaily, START_DATE_OBJ.getTime(), endDate.getTime());
+            updateYAxisLabelsAutoRange(document.getElementById('res-daily-y-axis'), document.getElementById('res-daily-grid'), 0, maxDaily, 500, 1000, 4, false);
+            drawDynamicXAxisLabels(document.getElementById('res-daily-x-axis'), START_DATE_OBJ.getTime(), endDate.getTime());
+        }
+
+        init();
+    </script>
+</body>
+</html>
