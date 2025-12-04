@@ -452,7 +452,7 @@
             <!-- 右側: Daily Gain Chart -->
             <div class="inset-chart-box" id="daily-chart-box">
                 <div class="inset-title">
-                    Daily Gain
+                    Daily Gain (3 Months)
                     <div class="legend">
                         <div class="legend-item"><span class="dot-legend" style="background:var(--color-a)"></span>A</div>
                         <div class="legend-item"><span class="dot-legend" style="background:var(--color-b)"></span>B</div>
@@ -832,7 +832,11 @@
             }
 
             // Daily Gain Chart (右下)
-            const recentData = fullHistory.slice(-100);
+            // --- 変更箇所: 表示期間を3ヶ月(90日)に設定 ---
+            const dailyWindowMs = 90 * 24 * 60 * 60 * 1000; // 90 days
+            const dailyCutoff = currentDate.getTime() - dailyWindowMs;
+            const recentData = fullHistory.filter(d => d.date.getTime() >= dailyCutoff);
+            
             drawInsetChart(recentData, smoothScales.daily.max);
         }
 
